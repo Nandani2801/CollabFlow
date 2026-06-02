@@ -24,13 +24,21 @@
         const ctx = canvas.getContext('2d');
         let drawing = false, lastX = 0, lastY = 0;
 
-        // Connect to Gateway — use 127.0.0.1 for Windows Docker
+        // ✅ NEW: unique ID for this browser tab — sent with every stroke
+        // This lets the server and other clients know WHO drew what
+        const clientId = Math.random().toString(36).slice(2);
+
+        // ✅ NEW: buffer for out-of-order strokes
+        // Key = logIndex, Value = stroke object
+        // When a stroke arrives out of order we hold it here until the gap is filled
+        let strokeBuffer = {};
+        let nextExpectedIndex = 0;
+
         const ws = new WebSocket('ws://127.0.0.1:8081');
 
         ws.onopen = () => {
             document.getElementById('status').className = 'connected';
             document.getElementById('status').textContent = 'Connected';
-            // Load existing canvas state on connect
             loadCanvasState();
         };
 
@@ -41,20 +49,64 @@
 
         ws.onmessage = (event) => {
             const msg = JSON.parse(event.data);
-            if (msg.type === 'stroke') drawLine(msg.stroke);
-            if (msg.type === 'clear') ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (msg.type === 'stroke') {
+                // ✅ NEW: use ordered rendering instead of drawing immediately
+                receiveStroke(msg.stroke);
+            }
+            if (msg.type === 'clear') {
+                // Clear resets the whole sequence
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                strokeBuffer = {};
+                nextExpectedIndex = 0;
+            }
         };
 
+        // ✅ NEW: ordered rendering function
+        // Instead of drawing the stroke immediately, we check if it's the next one in sequence.
+        // If yes, draw it and check the buffer for any queued strokes that can now be drawn.
+        // If no (gap), store it in the buffer and wait.
+        function receiveStroke(stroke) {
+            const idx = stroke.logIndex;
+
+            // If no logIndex (old format), just draw immediately
+            if (idx === undefined) {
+                drawLine(stroke);
+                return;
+            }
+
+            // Store in buffer
+            strokeBuffer[idx] = stroke;
+
+            // Drain buffer in order — draw as many consecutive strokes as possible
+            while (strokeBuffer[nextExpectedIndex] !== undefined) {
+                drawLine(strokeBuffer[nextExpectedIndex]);
+                delete strokeBuffer[nextExpectedIndex];
+                nextExpectedIndex++;
+            }
+        }
+
         async function loadCanvasState() {
-    try {
-        const res = await fetch('http://127.0.0.1:8081/canvas-state');
-        const data = await res.json();
-        data.strokes.forEach(stroke => {
-            if (stroke === null) ctx.clearRect(0, 0, canvas.width, canvas.height);
-            else drawLine(stroke);
-        });
-    } catch (e) { console.log('Could not load canvas state:', e); }
-}
+            try {
+                const res = await fetch('http://127.0.0.1:8081/canvas-state');
+                const data = await res.json();
+                // ✅ NEW: reset sequence counter before replaying history
+                nextExpectedIndex = 0;
+                strokeBuffer = {};
+                data.strokes.forEach(stroke => {
+                    if (stroke === null) {
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        nextExpectedIndex = 0;
+                    } else {
+                        drawLine(stroke);
+                        // After replay, next expected = highest index seen + 1
+                        if (stroke.logIndex !== undefined) {
+                            nextExpectedIndex = Math.max(nextExpectedIndex, stroke.logIndex + 1);
+                        }
+                    }
+                });
+            } catch (e) { console.log('Could not load canvas state:', e); }
+        }
 
         function drawLine({ x1, y1, x2, y2, color, width }) {
             ctx.beginPath();
@@ -77,9 +129,10 @@
                 x1: lastX, y1: lastY,
                 x2: e.offsetX, y2: e.offsetY,
                 color: document.getElementById('colorPicker').value,
-                width: parseInt(document.getElementById('brushSize').value)
+                width: parseInt(document.getElementById('brushSize').value),
+                clientId  // ✅ NEW: attach who drew this
             };
-            drawLine(stroke); // draw locally immediately
+            drawLine(stroke); // draw locally immediately (optimistic)
             if (ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: 'stroke', stroke }));
             }
@@ -91,10 +144,12 @@
 
         function clearCanvas() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
+            strokeBuffer = {};
+            nextExpectedIndex = 0;
             if (ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: 'clear' }));
-    }
-}
+            }
+        }
     </script>
 </body>
 </html>

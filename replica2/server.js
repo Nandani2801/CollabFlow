@@ -19,7 +19,6 @@ function resetElectionTimer() {
   electionTimer = setTimeout(startElection, t);
 }
 
-// FIX 3: stepDown helper — clears heartbeat interval and resets to follower cleanly
 function stepDown(newTerm) {
   currentTerm = newTerm;
   state = 'follower';
@@ -34,12 +33,7 @@ app.get('/status', (req, res) => {
 
 app.post('/request-vote', (req, res) => {
   const { term, candidateId } = req.body;
-
-  // FIX 3: use stepDown instead of manual state reset
-  if (term > currentTerm) {
-    stepDown(term);
-  }
-
+  if (term > currentTerm) stepDown(term);
   let voteGranted = false;
   if (term === currentTerm && (votedFor === null || votedFor === candidateId)) {
     voteGranted = true;
@@ -71,10 +65,7 @@ async function startElection() {
 
 function startHeartbeats() {
   heartbeatInterval = setInterval(() => {
-    if (state !== 'leader') {
-      clearInterval(heartbeatInterval);
-      return;
-    }
+    if (state !== 'leader') { clearInterval(heartbeatInterval); return; }
     for (const peer of PEERS) {
       axios.post(peer + '/heartbeat', { term: currentTerm, leaderId: REPLICA_ID }).catch(() => {});
     }
@@ -84,10 +75,8 @@ function startHeartbeats() {
 app.post('/heartbeat', (req, res) => {
   const { term, leaderId: incomingLeaderId } = req.body;
   if (term >= currentTerm) {
-    // FIX 3: use stepDown instead of manual state reset
     stepDown(term);
     leaderId = incomingLeaderId;
-    // FIX 1: use `replica${id}:` to avoid partial match (e.g. "3" matching "replica3" AND "replica13")
     leaderUrl = PEERS.find(p => p.includes(`replica${incomingLeaderId}:`));
   }
   res.json({});
@@ -95,19 +84,13 @@ app.post('/heartbeat', (req, res) => {
 
 app.post('/append-entries', async (req, res) => {
   const { term, entry, leaderCommit } = req.body;
-  if (term < currentTerm) {
-    return res.json({ success: false, logLength: log.length });
-  }
+  if (term < currentTerm) return res.json({ success: false, logLength: log.length });
 
-  // FIX 3: use stepDown instead of manual state reset
   stepDown(term);
 
   if (entry) {
     const prevLogIndex = entry.index - 1;
-
-    // FIX 2: proper prevLogIndex check (spec-compliant gap detection)
     if (prevLogIndex >= 0 && (log.length <= prevLogIndex || !log[prevLogIndex])) {
-      // Gap detected — catch up from leader
       if (leaderUrl) {
         try {
           const syncRes = await axios.get(leaderUrl + '/sync-log?from=' + log.length);
@@ -116,25 +99,29 @@ app.post('/append-entries', async (req, res) => {
       }
       return res.json({ success: false, logLength: log.length });
     } else {
-      // Normal append — idempotent: only push if not already present
-      if (log.length <= entry.index) {
-        log.push(entry);
-      }
+      if (log.length <= entry.index) log.push(entry);
     }
   }
 
-  if (leaderCommit > commitIndex) {
-    commitIndex = leaderCommit;
-  }
+  if (leaderCommit > commitIndex) commitIndex = leaderCommit;
   res.json({ success: true, logLength: log.length });
 });
 
+// ✅ CHANGED: attach logIndex and clientId to stroke before broadcasting
 app.post('/stroke', async (req, res) => {
-  if (state !== 'leader') {
-    return res.json({ error: 'not leader', leaderId });
-  }
-  const entry = { term: currentTerm, index: log.length, stroke: req.body };
+  if (state !== 'leader') return res.json({ error: 'not leader', leaderId });
+
+  // Stamp the stroke with its global position in the log
+  const logIndex = log.length;
+  const strokeWithIndex = {
+    ...req.body,
+    logIndex,                              // global ordering number
+    clientId: req.body.clientId || 'unknown'  // which user drew this
+  };
+
+  const entry = { term: currentTerm, index: logIndex, stroke: strokeWithIndex };
   log.push(entry);
+
   let confirmations = 1;
   for (const peer of PEERS) {
     try {
@@ -142,16 +129,18 @@ app.post('/stroke', async (req, res) => {
       if (r.data.success) confirmations++;
     } catch {}
   }
+
   if (confirmations >= 2) {
     commitIndex = entry.index;
-    axios.post('http://gateway:8080/broadcast', req.body);
+    // ✅ CHANGED: broadcast the stamped stroke (includes logIndex)
+    axios.post('http://gateway:8080/broadcast', strokeWithIndex);
   }
   res.json({});
 });
 
 app.post('/clear', async (req, res) => {
   if (state !== 'leader') return res.json({ error: 'not leader' });
-  const entry = { term: currentTerm, index: log.length, stroke: null }; // null = clear marker
+  const entry = { term: currentTerm, index: log.length, stroke: null };
   log.push(entry);
   let confirmations = 1;
   for (const peer of PEERS) {
@@ -173,6 +162,6 @@ app.get('/sync-log', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Replica ${REPLICA_ID} started on port ${PORT}`);
+  console.log(`[Replica ${REPLICA_ID}] started on port ${PORT}`);
   resetElectionTimer();
 });
