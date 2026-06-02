@@ -1,0 +1,73 @@
+services:
+
+  gateway:
+    build: ./gateway
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./gateway:/app
+      - /app/node_modules
+    environment:
+      - PORT=8080
+      - REPLICA1=http://replica1:3001
+      - REPLICA2=http://replica2:3002
+      - REPLICA3=http://replica3:3003
+    networks:
+      - raft-net
+    depends_on:
+      - replica1
+      - replica2
+      - replica3
+    restart: unless-stopped
+
+  replica1:
+    build: ./replica1
+    ports:
+      - "13001:3001"   # 13001 on your laptop → 3001 inside container
+    volumes:
+      - ./replica1:/app
+      - /app/node_modules
+    environment:
+      - REPLICA_ID=1
+      - PORT=3001
+      - PEERS=http://replica2:3002,http://replica3:3003
+      - GATEWAY_URL=http://gateway:8080
+    networks:
+      - raft-net
+    restart: unless-stopped
+
+  replica2:
+    build: ./replica2
+    ports:
+      - "13002:3002"   # 13002 on your laptop → 3002 inside container
+    volumes:
+      - ./replica2:/app
+      - /app/node_modules
+    environment:
+      - REPLICA_ID=2
+      - PORT=3002
+      - PEERS=http://replica1:3001,http://replica3:3003
+      - GATEWAY_URL=http://gateway:8080
+    networks:
+      - raft-net
+    restart: unless-stopped
+
+  replica3:
+    build: ./replica3
+    ports:
+      - "13003:3003"   # 13003 on your laptop → 3003 inside container
+    volumes:
+      - ./replica3:/app
+      - /app/node_modules
+    environment:
+      - REPLICA_ID=3
+      - PORT=3003
+      - PEERS=http://replica1:3001,http://replica2:3002
+      - GATEWAY_URL=http://gateway:8080
+    networks:
+      - raft-net
+    restart: unless-stopped
+
+networks:
+  raft-net:
+    driver: bridge

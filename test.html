@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<body>
+<script>
+    var ws = new WebSocket('ws://127.0.0.1:8081');
+    ws.onopen = function() {
+        document.body.innerHTML = 'CONNECTED!';
+        console.log('Connected!');
+    };
+    ws.onerror = function(e) {
+        document.body.innerHTML = 'ERROR: ' + e.type;
+        console.log('Error:', e);
+    };
+</script>
+</body>
+</html>

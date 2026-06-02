@@ -1,0 +1,164 @@
+# RAFT Replica Service – package.json Explanation
+
+This document explains the purpose of the `package.json` file used in the **RAFT replica service** of 
+our Distributed Real-Time Drawing Board project.
+
+Each replica server runs a Node.js application implementing the **RAFT consensus protocol**.
+
+---
+
+## File Overview
+
+```json
+{
+  "name": "raft-replica",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "express": "^4.18.2"
+  }
+}
+```
+
+---
+
+# Field Explanation
+
+## name: "raft-replica"
+
+Defines the name of the Node.js service.
+
+This represents **one RAFT replica node** in the distributed system.
+
+Our system contains **three replicas**:
+
+- replica1
+- replica2
+- replica3
+
+Each replica runs the same code but with different environment variables.
+
+---
+
+## version: "1.0.0"
+
+Tracks the version of the replica service.
+
+Helps track changes to the RAFT implementation.
+
+---
+
+## main: "server.js"
+
+Defines the **entry point of the service**.
+
+`server.js` contains:
+
+- RAFT state machine logic
+- leader election
+- heartbeat handling
+- log replication
+- stroke replication
+
+---
+
+# Scripts
+
+## start
+
+```
+node server.js
+```
+
+Starts the replica server normally.
+
+Used when running inside Docker containers.
+
+---
+
+## dev
+
+```
+nodemon server.js
+```
+
+Runs the server using **nodemon**.
+
+Nodemon automatically restarts the server whenever the code changes.
+
+This allows **hot reload during development**.
+
+---
+
+# Dependencies
+
+## express
+
+Express is used to build the HTTP API for the replica server.
+
+The replica exposes endpoints used in the RAFT protocol:
+
+- POST `/request-vote`
+- POST `/append-entries`
+- POST `/heartbeat`
+- GET `/sync-log`
+- POST `/stroke`
+- GET `/status`
+
+These endpoints allow replicas to communicate and maintain consensus.
+
+---
+
+## axios
+
+Axios is used for **HTTP communication between replicas**.
+
+Examples in this project:
+
+- sending vote requests
+- sending heartbeat messages
+- replicating log entries
+- syncing logs after restart
+
+Axios makes it easy to perform HTTP requests between containers.
+
+---
+
+# How This Fits Into The Architecture
+
+System Architecture:
+
+Browser  
+⬇  
+Gateway (WebSocket Server)  
+⬇  
+Leader Replica  
+⬇  
+Follower Replicas
+
+When a user draws:
+
+1. Browser sends stroke to Gateway
+2. Gateway forwards to Leader Replica
+3. Leader replicates the stroke to followers
+4. Once majority confirms, stroke becomes **committed**
+5. Gateway broadcasts stroke to all browsers
+
+This package.json enables the **replica service that runs the RAFT protocol**.
+
+---
+
+# Development Tip
+
+Use the dev script while developing:
+
+```
+npm run dev
+```
+
+This allows nodemon to automatically restart the server when files change.

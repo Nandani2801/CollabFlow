@@ -1,0 +1,35 @@
+# ── Stage: base image ────────────────────────────────────────────
+# node:18-alpine is a tiny Linux image (~50MB) with Node.js pre-installed.
+# "alpine" = Alpine Linux, chosen because it is much smaller than node:18
+FROM node:18-alpine
+ 
+# ── Set the working directory inside the container ───────────────
+# All following commands run inside /app.
+# When Docker copies files, they land here.
+WORKDIR /app
+ 
+# ── Copy ONLY package.json first (Docker layer cache trick) ──────
+# Why? Docker builds in layers. If package.json hasn't changed,
+# Docker reuses the cached "npm install" layer — much faster rebuilds.
+COPY package.json .
+ 
+# ── Install production dependencies ──────────────────────────────
+# Reads package.json and installs express + axios into node_modules/
+RUN npm install
+ 
+# ── Install nodemon globally ─────────────────────────────────────
+# nodemon watches your .js files and auto-restarts Node when you save.
+# This is what gives us "hot reload" when we edit files on the laptop.
+RUN npm install -g nodemon
+ 
+# ── Copy the rest of the source code ─────────────────────────────
+# The . means "copy everything in the build context (replica/ folder)
+# into the container's /app directory".
+# This runs AFTER npm install so the cache trick above works.
+COPY . .
+ 
+# ── Command to run when the container starts ─────────────────────
+# CMD is the default command. nodemon watches server.js for changes.
+# When you edit replica1/server.js on your laptop (bind mount),
+# nodemon sees the change and restarts the Node process automatically.
+CMD ["nodemon", "--legacy-watch", "server.js"]
