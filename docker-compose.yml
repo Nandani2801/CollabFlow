@@ -1,5 +1,4 @@
 services:
-
   gateway:
     build: ./gateway
     ports:
@@ -23,7 +22,7 @@ services:
   replica1:
     build: ./replica1
     ports:
-      - "13001:3001"   # 13001 on your laptop → 3001 inside container
+      - "13001:3001"
     volumes:
       - ./replica1:/app
       - /app/node_modules
@@ -39,7 +38,7 @@ services:
   replica2:
     build: ./replica2
     ports:
-      - "13002:3002"   # 13002 on your laptop → 3002 inside container
+      - "13002:3002"
     volumes:
       - ./replica2:/app
       - /app/node_modules
@@ -55,7 +54,7 @@ services:
   replica3:
     build: ./replica3
     ports:
-      - "13003:3003"   # 13003 on your laptop → 3003 inside container
+      - "13003:3003"
     volumes:
       - ./replica3:/app
       - /app/node_modules
@@ -68,6 +67,32 @@ services:
       - raft-net
     restart: unless-stopped
 
+  # ✅ NEW: Prometheus — scrapes /metrics from all 3 replicas every 5s
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - raft-net
+    restart: unless-stopped
+
+  # ✅ NEW: Grafana — visualizes prometheus data
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+    networks:
+      - raft-net
+    restart: unless-stopped
+
 networks:
   raft-net:
     driver: bridge
+volumes:
+    grafana-data:

@@ -1,0 +1,11 @@
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: 'raft-replicas'
+    static_configs:
+      - targets:
+          - 'replica1:3001'
+          - 'replica2:3002'
+          - 'replica3:3003'
+    metrics_path: '/metrics'
